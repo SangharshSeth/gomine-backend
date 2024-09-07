@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/sangharshseth/gomine-backend/internal/services/problems"
+	"github.com/sangharshseth/gomine-backend/internal/storage"
 	"log"
 	"net/http"
 
@@ -10,17 +12,36 @@ import (
 
 type ApiServer struct {
 	address string
+	db      *storage.Client
 }
 
-func GetAPIServer(address string) *ApiServer {
+func GetAPIServer(address string, db *storage.Client) *ApiServer {
 	return &ApiServer{
 		address: address,
+		db:      db,
 	}
 }
 
 type Response struct {
 	Status  int    `json:"status"`
 	Message string `json:"message"`
+}
+
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")                   // Allow all origins
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS") // Allow methods
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")       // Allow headers
+
+		// Handle preflight requests
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *ApiServer) RunServer() error {
@@ -37,8 +58,12 @@ func (s *ApiServer) RunServer() error {
 
 	server := http.Server{
 		Addr:    s.address,
-		Handler: middlewares.ApiLogger(multiplexer),
+		Handler: middlewares.ApiLogger(withCORS(multiplexer)),
 	}
+
+	problemsStore := problems.NewStore(s.db)
+	problemsHandler := problems.NewHandler(problemsStore)
+	problemsHandler.RegisterRoutes(multiplexer)
 
 	log.Printf("Server has started on %s", s.address)
 
